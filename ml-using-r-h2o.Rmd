@@ -1,0 +1,768 @@
+---
+title: "Modern Machine Learning using R and H2O"
+subtitle: "A hands-on guide to classification and regression modeling using R and H2O"
+author: "Danny Morris"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_flat: false
+    css: "style.css"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = F)
+```
+
+# Technical setup
+
+## R version and OS
+
+```{r}
+R.version
+```
+
+## Install R packages from CRAN
+
+```{r, eval = F}
+install.packages("h2o")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("DT")
+```
+
+## Load packages
+
+```{r}
+library(h2o)
+library(data.table)
+library(dplyr)
+library(ggplot2) 
+library(DT)
+```
+
+# Introduction
+
+## About this course
+
+In this course, you'll build machine learning workflows to train and evaluate classification and regression models using open-source R and H2O software. You'll learn how to build models that are accurate, scalable, explainable, and easy to implement. This course will teach you how to select the best possible model for the problem at hand through the use of cross validation and hyperparameter tuning. After this course, you will be able to complete industry-level machine learning projects.
+
+The code for this module is built around the R and H2O, two of the premier frameworks for data science and machine learning, as well as the `dplyr` and `ggplot2` R packages for data analysis and visualization. Knowledge of R programming language is recommended.
+
+## What you will learn
+
+The following topics are covered in this course.
+
+- Importing and exploring data
+- Connecting to a local H2O cluster
+- AutoML
+- Regression modeling
+- Linear regression
+- Gradient boosted machines
+- Classification modeling
+- Logistic regression
+- Random forest
+- Cross validation
+- Hyperparamter tuning
+- Evaluating model performance
+- Identifying important features
+- Saving and restoring the model
+
+## Why H2O
+
+H2O is recognized as one of the leading providers of open-source machine learning software. The accuracy, selection, speed, and scalability of H2O's algorithms make it ideal for modern machine learning. 
+
+## Why R
+
+R is among the most popular open-source tools for data science and analytics. This make R a natural fit for machine learning since most machine learning workflows involve a significant amount of data analysis. Additionally, the R client for H2O is extremely simple and consistent, making for a smooth user experience.
+
+# Regression modeling
+
+## Read local CSV file
+
+```{r}
+insurance <- data.table::fread("data/insurance.csv")
+```
+
+## Inspect the data structure
+
+Assess the number of rows and columns and the general structure of the data.
+
+```{r}
+glimpse(insurance)
+```
+
+## Assess missing values
+
+```{r}
+compute_percent_missing <- function(x) {
+  sum(is.na(x)) / length(x)
+}
+
+sapply(insurance, compute_percent_missing)
+```
+
+## Assess the distribution of the target variable
+
+```{r}
+ggplot(insurance, aes(x = charges)) +
+  geom_density() +
+  scale_x_continuous(n.breaks = 20) +
+  labs(title = "Distribution of target variable charges") +
+  theme_bw()
+```
+
+## Specify feature and target variable names
+
+```{r}
+features <- insurance %>%
+  select(-charges) %>%
+  colnames()
+
+target <- "charges"
+```
+
+```{r}
+print(features)
+print(target)
+```
+
+## Connect to local H2O cluster
+
+```{r}
+h2o.init()
+```
+
+## Import data into H2O cluster
+
+H2O requires any non-numeric variable used in the model to be of class `factor`.
+
+```{r}
+insurance_h2o <- insurance %>%
+  mutate_if(is.character, as.factor) %>%
+  as.h2o()
+```
+
+## Describe the H2OFrame
+
+```{r}
+h2o.describe(insurance_h2o)
+```
+
+## Linear regression
+
+### Prepare hyperparameter tuning strategy
+
+- Define grid of hyperparameter values
+- Define hyperparameter search strategy
+
+```{r}
+lr_hyperparameters <- list(
+  alpha = c(0.01, 0.1, 0.3, 0.5, 0.7, 0.9, 1),
+  lambda = c(1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
+)
+```
+
+```{r}
+# Search a random subset of these hyper-parmameters. Max runtime 
+# and max models are enforced, and the search will stop after we 
+# don't improve much over the best 5 random models.
+lr_search_criteria = list(
+  strategy = "RandomDiscrete", 
+  max_runtime_secs = 600, 
+  max_models = 100, 
+  stopping_metric = "AUTO", 
+  stopping_tolerance = 0.00001, 
+  stopping_rounds = 5, 
+  seed = 123456
+)
+```
+
+### Fit model using cross validation
+
+```{r}
+glm_regression <- h2o.grid(
+  algorithm = "glm",
+  grid_id = "glm_insurance_random_search",
+  x = features,
+  y = target,
+  training_frame = insurance_h2o,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  stopping_rounds = 2,
+  stopping_tolerance = 1e-3,
+  stopping_metric = "AUTO",
+  seed = 123456,
+  hyper_params = lr_hyperparameters,
+  search_criteria = lr_search_criteria,
+  link = "log"
+)
+```
+
+### Obtain model with best performing subset of hyperparameters
+
+Chosen by CV since `nfolds` > 0.
+
+```{r}
+lr_sorted_grid <- h2o.getGrid(
+  grid_id = "glm_insurance_log_transform", 
+  sort_by = "r2",
+  decreasing = TRUE
+)
+
+lr_best_model <- h2o.getModel(lr_sorted_grid@model_ids[[1]])
+
+summary(lr_best_model)
+```
+
+### Inspect model details
+
+```{r}
+lr_best_model@model$model_summary %>%
+  as_tibble() 
+```
+
+### Assess performance metrics
+
+```{r}
+h2o.performance(lr_best_model, xval = T)
+```
+
+### Obtain and explain regression coefficients
+
+```{r}
+lr_best_model@model$coefficients_table
+```
+
+![](images/lr-coefs-table.png)
+
+### Obtain predicted values and residuals
+
+```{r}
+lr_predictions <- h2o.getFrame(
+  id = lr_best_model@model[["cross_validation_holdout_predictions_frame_id"]][["name"]]
+)
+
+lr_residuals <- h2o.cbind(insurance_h2o, lr_predictions) %>%
+  as_tibble() %>%
+  mutate(residual = predict - charges)
+```
+
+### Visualize predicted values and residuals
+
+Distribution of residuals
+
+What we are looking for: Univariate distribution centered around 0 with low variance
+
+```{r}
+ggplot(actuals_v_predicted, aes(x = residual)) +
+  geom_density() +
+  labs(title = "Distribution of residuals") +
+  theme_bw()
+```
+
+Predicted versus residual values
+
+What we are looking for: Residual values centered around 0 along the entire range of predicted values.
+
+```{r}
+actuals_v_predicted %>%
+  ggplot(aes(x = predict, y  = residual)) +
+  geom_point() +
+  geom_hline(aes(yintercept = 0), lty = 2, color = "blue", size = 1.5) +
+  labs(title = "Fitted vs. Residual values",
+       x = "Fitted",
+       y = "Residual") +
+  theme_bw()
+```
+
+### Summarize conclusions
+
+- Target variable has a significant right-skew. A log-transformation of the target variable yielded better accuracy.
+- R-squared value estimated using cross validation is 0.747
+- 
+
+## Gradient Boosted Regression Tree
+
+### Prepare hyperparameter tuning strategy
+
+- Define grid of hyperparameter values
+- Define hyperparameter search strategy
+
+```{r}
+gbm_hyperparameters = list( 
+  ntrees = c(10000), 
+  max_depth = seq(1, 20), 
+  min_rows = c(1, 5, 10, 20, 50, 100), 
+  learn_rate = seq(0.001, 0.01, 0.001),
+  sample_rate = seq(0.3, 1, 0.05),
+  col_sample_rate = seq(0.3, 1, 0.05),
+  col_sample_rate_per_tree = seq(0.3,1,0.05)
+)
+```
+
+```{r}
+# Search a random subset of these hyper-parmameters. Max runtime 
+# and max models are enforced, and the search will stop after we 
+# don't improve much over the best 5 random models.
+gbm_search_criteria = list(
+  strategy = "RandomDiscrete", 
+  max_runtime_secs = 600, 
+  max_models = 100, 
+  stopping_metric = "AUTO", 
+  stopping_tolerance = 0.00001, 
+  stopping_rounds = 5, 
+  seed = 123456
+)
+```
+
+### Fit model using cross validation
+
+```{r}
+gbm_regression <- h2o.grid(
+  algorithm = "gbm",
+  grid_id = "gbm_insurance_random_search",
+  x = features,
+  y = target,
+  training_frame = insurance_h2o,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  stopping_rounds = 2,
+  stopping_tolerance = 1e-3,
+  stopping_metric = "AUTO",
+  seed = 123456,
+  hyper_params = gbm_hyperparameters,
+  search_criteria = gbm_search_criteria,
+  distribution = "gaussian"
+)
+```
+
+Learning opportunities:
+- Experiment with different options for `distribution`
+
+### Obtain model with best performing subset of hyperparameters
+
+Chosen by CV since `nfolds` > 0.
+
+```{r}
+gbm_sorted_grid <- h2o.getGrid(
+  grid_id = "gbm_insurance_random_search", 
+  sort_by = "r2",
+  decreasing = TRUE
+)
+
+gbm_best_model <- h2o.getModel(
+  model_id = gbm_sorted_grid@model_ids[[1]]
+)
+
+summary(gbm_best_model)
+```
+
+### Inspect model parameters
+
+```{r}
+gbm_best_model@parameters
+```
+
+### Assess performance metrics
+
+```{r}
+h2o.performance(gbm_best_model, xval = T)
+h2o.r2(gbm_best_model, xval = T)
+```
+
+### Obtain and explain important features
+
+```{r}
+gbm_best_model@model$variable_importances
+```
+
+![](images/lr-coefs-table.png)
+
+### Obtain predicted values and residuals
+
+```{r}
+gbm_predictions <- h2o.getFrame(
+  id = gbm_best_model@model[["cross_validation_holdout_predictions_frame_id"]][["name"]]
+)
+
+gbm_residuals <- h2o.cbind(insurance_h2o, gbm_predictions) %>%
+  as_tibble() %>%
+  mutate(residual = predict - charges)
+```
+
+### Visualize predicted values and residuals
+
+Distribution of residuals
+
+What we are looking for: Univariate distribution centered around 0 with low variance
+
+```{r}
+ggplot(gbm_residuals, aes(x = residual)) +
+  geom_density() +
+  labs(title = "Distribution of residuals") +
+  theme_bw()
+```
+
+Predicted versus residual values
+
+What we are looking for: Residual values centered around 0 along the entire range of predicted values.
+
+```{r}
+gbm_residuals %>%
+  ggplot(aes(x = predict, y  = residual)) +
+  geom_point() +
+  geom_hline(aes(yintercept = 0), lty = 2, color = "blue", size = 1.5) +
+  labs(title = "Fitted vs. Residual values",
+       x = "Fitted",
+       y = "Residual") +
+  theme_bw()
+```
+
+Predicted versus actuals
+
+What we are looking for: How well the predicted values line up with the actual values.
+
+```{r}
+gbm_residuals %>%
+  ggplot(aes(x = predict, y = charges)) +
+  geom_point() +
+  labs(title = "Predicted versus Actuals",
+       x = "Predicted",
+       y = "Actuals") +
+  theme_bw()
+```
+
+### Summarize conclusions
+
+- Target variable has a significant right-skew. A log-transformation of the target variable yielded better accuracy.
+- R-squared value estimated using cross validation is 0.747
+- 
+
+# Shut down the H2O cluster
+
+```{r}
+h2o.shutdown(prompt = FALSE)
+```
+
+# Classification modeling
+
+## Read local CSV file
+
+```{r}
+customer_churn <- data.table::fread("data/customer-churn.csv")
+```
+
+## Describe data structure
+
+Assess the number of rows and columns and the general structure of the data.
+
+```{r}
+glimpse(customer_churn)
+```
+
+## Assess missing values
+
+```{r}
+compute_percent_missing <- function(x) {
+  sum(is.na(x)) / length(x)
+}
+
+sapply(customer_churn, compute_percent_missing)
+```
+
+## Assess the distribution of the target variable
+
+```{r}
+table(customer_churn$Churn) %>%
+  prop.table()
+```
+
+## Specify feature and target variable names
+
+```{r}
+features <- customer_churn %>%
+  select(-customerID, -Churn) %>%
+  colnames()
+
+target <- "Churn"
+```
+
+```{r}
+print(features)
+print(target)
+```
+
+## Connect to local H2O cluster
+
+```{r}
+h2o.init()
+```
+
+## Import data into H2O cluster
+
+H2O requires any non-numeric variable used in the model to be of class `factor`.
+
+```{r}
+churn_h2o <- customer_churn %>%
+  mutate_if(is.character, as.factor) %>%
+  as.h2o()
+```
+
+## Describe the H2OFrame
+
+```{r}
+h2o.describe(churn_h2o)
+```
+
+## Logistic Regression 
+
+### Prepare hyperparameter tuning
+
+```{r}
+glm_hyperparameters <- list(
+  alpha = c(0.01, 0.1, 0.3, 0.5, 0.7, 0.9, 1),
+  lambda = c(1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
+)
+```
+
+```{r}
+# Search a random subset of these hyper-parmameters. Max runtime 
+# and max models are enforced, and the search will stop after we 
+# don't improve much over the best 5 random models.
+glm_search_criteria = list(
+  strategy = "RandomDiscrete", 
+  max_runtime_secs = 600, 
+  max_models = 100, 
+  stopping_metric = "AUTO", 
+  stopping_tolerance = 0.00001, 
+  stopping_rounds = 5, 
+  seed = 123456
+)
+```
+
+### Fit model using cross validation and hyperparameter tuning
+
+```{r}
+glm_classification <- h2o.grid(
+  algorithm = "glm",
+  grid_id = "glm_churn_random_search",
+  x = features,
+  y = target,
+  training_frame = churn_h2o,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  stopping_rounds = 2,
+  stopping_tolerance = 1e-3,
+  stopping_metric = "AUTO",
+  seed = 123456,
+  hyper_params = glm_hyperparameters,
+  search_criteria = glm_search_criteria,
+  family = "binomial"
+)
+```
+
+Learning opportunities:
+- increase and decrease the number of cross validation folds, weighing changes in performance and wait times.
+- set `standardize = FALSE` to undo the effects of centering and scaling the features
+
+### Obtain model with best performing subset of hyperparameters
+
+Chosen by CV since `nfolds` > 0.
+
+```{r}
+glm_sorted_grid <- h2o.getGrid(
+  grid_id = "glm_churn_random_search", 
+  sort_by = "f1",
+  decreasing = TRUE
+)
+
+glm_best_model <- h2o.getModel(
+  model_id = glm_sorted_grid@model_ids[[1]]
+)
+
+summary(glm_best_model)
+```
+
+### Inspect model details
+
+```{r}
+glm_best_model@model$model_summary %>%
+  as_tibble() %>%
+  gather(key, value)
+
+glm_classification@summary_table
+```
+
+### Assess performance metrics
+
+```{r}
+# tibble(
+#   r_squared = h2o.r2(linear_regression, xval = TRUE),
+#   rmse = h2o.rmse(linear_regression, xval = TRUE),
+#   rmsle = h2o.rmsle(linear_regression, xval = T)
+# )
+
+h2o.performance(glm_best_model, xval = T)
+
+perf <- h2o.performance(glm_best_model, xval = T)
+
+h2o.confusionMatrix(perf)
+```
+
+### Gains/Lift table
+
+```{r}
+h2o.gainsLift(glm_best_model, xval = T)
+```
+
+## Gradient Boosted Classification Trees
+
+### Prepare hyperparameter tuning
+
+```{r}
+gbm_hyperparameters = list( 
+  ntrees = c(10000), 
+  max_depth = seq(1, 20), 
+  min_rows = c(1, 5, 10, 20, 50, 100), 
+  learn_rate = seq(0.001, 0.01, 0.001),
+  sample_rate = seq(0.3, 1, 0.05),
+  col_sample_rate = seq(0.3, 1, 0.05),
+  col_sample_rate_per_tree = seq(0.3,1,0.05)
+)
+```
+
+```{r}
+# Search a random subset of these hyper-parmameters. Max runtime 
+# and max models are enforced, and the search will stop after we 
+# don't improve much over the best 5 random models.
+gbm_search_criteria = list(
+  strategy = "RandomDiscrete", 
+  max_runtime_secs = 600, 
+  max_models = 100, 
+  stopping_metric = "AUTO", 
+  stopping_tolerance = 0.00001, 
+  stopping_rounds = 5, 
+  seed = 123456
+)
+```
+
+### Fit model using cross validation and hyperparameter tuning
+
+```{r}
+gbm_classification <- h2o.grid(
+  algorithm = "gbm",
+  grid_id = "gbm_churn_random_search",
+  x = features,
+  y = target,
+  training_frame = churn_h2o,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  stopping_rounds = 2,
+  stopping_tolerance = 1e-3,
+  stopping_metric = "AUTO",
+  seed = 123456,
+  hyper_params = gbm_hyperparameters,
+  search_criteria = gbm_search_criteria,
+  distribution = "bernoulli",
+  balance_classes = T
+)
+```
+
+Learning opportunities:
+- increase and decrease the number of cross validation folds, weighing changes in performance and wait times.
+- set `standardize = FALSE` to undo the effects of centering and scaling the features
+
+### Obtain model with best performing subset of hyperparameters
+
+Chosen by CV since `nfolds` > 0.
+
+```{r}
+gbm_sorted_grid <- h2o.getGrid(
+  grid_id = "gbm_churn_random_search", 
+  sort_by = "f1",
+  decreasing = TRUE
+)
+
+gbm_best_model <- h2o.getModel(
+  model_id = gbm_sorted_grid@model_ids[[1]]
+)
+
+summary(gbm_best_model)
+```
+
+### Inspect model details
+
+```{r}
+gbm_best_model@model$model_summary %>%
+  as_tibble() %>%
+  gather(key, value)
+
+gbm_classification@summary_table
+
+gbm_best_model@parameters
+```
+
+### Assess performance metrics
+
+```{r}
+# tibble(
+#   r_squared = h2o.r2(linear_regression, xval = TRUE),
+#   rmse = h2o.rmse(linear_regression, xval = TRUE),
+#   rmsle = h2o.rmsle(linear_regression, xval = T)
+# )
+
+h2o.performance(gbm_best_model, xval = T)
+
+perf <- h2o.performance(gbm_best_model, xval = T)
+
+h2o.confusionMatrix(perf)
+```
+
+### Gains/Lift table
+
+```{r}
+h2o.gainsLift(gbm_best_model, xval = T)
+```
+
+## AutoML
+
+```{r}
+include_algorithms <- c(
+  "GLM",
+  "GBM",
+  "DeepLearning",
+  "StackedEnsemble"
+)
+
+automl <- h2o.automl(
+  x = features,
+  y = target,
+  training_frame = churn_h2o,
+  nfolds = 5,
+  include_algos = include_algorithms,
+  max_runtime_secs = 300
+)
+
+leaderboard <- h2o.get_leaderboard(automl)
+
+# top 10 models
+head(leaderboard, 20)
+
+# bottom 10 models
+tail(leaderboard, 10)
+
+automl_best_model <- automl@leader
+
+p <- h2o.performance(automl_best_model, xval = T)
+
+h2o.accuracy(p) %>%
+  as_tibble() %>%
+  arrange(desc(accuracy))
+```
+
+# Handling imbalanced classes
+
