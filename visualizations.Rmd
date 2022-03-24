@@ -1,0 +1,690 @@
+---
+title: "Visualizations"
+author: "Danny Morris"
+date: "3/22/2022"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: false
+    number_sections: true
+    theme: cosmo
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+```
+
+# Packages
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(viridisLite)
+library(reactable)
+library(plotly)
+library(htmltools)
+library(htmlwidgets)
+```
+
+# Data
+
+```{r}
+churn <- read_csv("churn.csv")
+insurance <- read_csv("insurance.csv")
+```
+
+```{r}
+insurance_sample <- insurance %>%
+  group_by(smoker) %>%
+  sample_n(5) %>%
+  ungroup() %>%
+  mutate(Id = row_number()) %>%
+  select(Id, smoker, sex, age, charges)
+
+churn_sample <- churn %>%
+  group_by(churn) %>%
+  slice(1:5) %>%
+  ungroup() %>%
+  mutate(Id = row_number()) %>%
+  select(Id, number_customer_service_calls, total_night_charge, churn) 
+```
+
+# Key concepts
+
+## Classification
+
+```{r}
+churn_sample %>%
+  reactable(
+    compact = T,
+    bordered = TRUE, 
+    columns = list(
+      Id = colDef(
+        name = "Customer ID",
+        align = "left"
+      ),
+      number_customer_service_calls = colDef(
+        name = "Customer Service Calls",
+        align = "left"
+      ),
+      total_night_charge = colDef(
+        name = "Daytime charges",
+        align = "left"
+      ),
+      churn = colDef(
+        name = "Churn",
+        style = function(value) {
+          list(
+            background = "#e8e8e8"
+          )
+        }
+      )
+    )
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Example data for classifying whether or not customers will churn")
+  )
+```
+
+## Regression
+
+```{r}
+insurance_sample %>%
+  reactable(
+    compact = T,
+    bordered = TRUE, 
+    columns = list(
+      Id = colDef(
+        name = "Customer ID",
+        align = "left"
+      ),
+      smoker = colDef(
+        name = "Smoker",
+        align = "left"
+      ),
+      sex = colDef(
+        name = "Gender",
+        align = "left"
+      ),
+      age = colDef(
+        name = "Age",
+        align = "left"
+      ),
+      charges = colDef(
+        name = "Healthcare Costs",
+        align = "left",
+        format = colFormat(digits = 2, separators = T),
+        style = function(value) {
+          list(background = "#e8e8e8")
+        }
+      )
+    )
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Example data for predicting individual healthcare costs")
+  )
+
+```
+
+## Target variable and features
+
+```{r}
+insurance_sample %>%
+  reactable(
+    compact = T,
+    bordered = FALSE, 
+    columns = list(
+      Id = colDef(
+        name = "Customer ID",
+        align = "left",
+        headerStyle = list(
+          color = "#b2b2b2"
+        )
+      ),
+      smoker = colDef(
+        name = "Smoker",
+        align = "left",
+        headerStyle = list(
+          color = "#b2b2b2"
+        )
+      ),
+      sex = colDef(
+        name = "Gender",
+        align = "left",
+        headerStyle = list(
+          color = "#b2b2b2"
+        )
+      ),
+      age = colDef(
+        name = "Age",
+        align = "left",
+        headerStyle = list(
+          color = "#b2b2b2"
+        )
+      ),
+      charges = colDef(
+        name = "Healthcare Costs",
+        align = "left",
+        headerStyle = list(
+          color = "#b2b2b2"
+        ),
+        format = colFormat(
+          digits = 2, 
+          separators = T
+        )
+      )
+    ),
+    columnGroups = list(
+      colGroup(
+        name = "Features", 
+        columns = c("age", "sex", "smoker"),
+        headerStyle = list(
+          color = "#0FA3B1"
+        )
+      ),
+      colGroup(
+        name = "Target", 
+        columns = "charges",
+        headerStyle = list(
+          color = "#0FA3B1"
+        )
+      )
+    )
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Features and target variable")
+  )
+```
+
+## Instances
+
+```{r}
+
+```
+
+## Training, validation, testing
+
+```{r}
+insurance_sample %>%
+  select(-sex) %>%
+  mutate(Partition = c(rep("Training", 6), rep("Validation", 2), rep("Testing", 2))) %>%
+  reactable(
+    compact = T,
+    bordered = TRUE, 
+    columns = list(
+      Partition = colDef(
+        style = function(value) {
+          color <- if (value == "Training") {
+            "#0FA3B199"
+          } else if (value == "Validation") {
+            "#f0824899"
+          } else {
+            "#74cdfc99"
+          }
+          list(background = color)
+        }
+      ),
+      Id = colDef(
+        name = "Customer ID",
+        align = "left"
+      ),
+      smoker = colDef(
+        name = "Smoker",
+        align = "left"
+      ),
+      age = colDef(
+        name = "Age",
+        align = "left"
+      ),
+      charges = colDef(
+        name = "Healthcare Costs",
+        align = "left",
+        format = colFormat(
+          digits = 2, 
+          separators = T
+        )
+      )
+    )
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Example data split into training, validation, and testing partitions")
+  )
+```
+
+## Actual v. Predicted
+
+```{r}
+tibble(
+  Dummy = c("Actual churn: Yes", "Actual churn: No"),
+  Predicted_churn = c(534, 29),
+  Predicted_churn_no = c(78, 452)
+) %>%
+  reactable(
+    compact = T,
+    bordered = T,
+    columns = list(
+      Dummy = colDef(
+        name = "",
+        style = function(value) {
+          list(
+            fontWeight = 600
+          )
+        }
+      ),
+      Predicted_churn = colDef(
+        name = "Predicted churn: Yes"
+      ),
+      Predicted_churn_no = colDef(
+        name = "Predicted churn: No"
+      )
+    )
+  ) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Example confusion matrix for comparing actual and predicted classifications")
+  )
+```
+
+## Missing values
+
+```{r}
+churn_sample2 <- as.data.frame(churn_sample[,-3])
+churn_sample2[c(1,7), 2] <- "NA"
+churn_sample2[c(3), 3] <- "NA"
+
+reactable(
+  data = churn_sample2,
+  compact = T,
+  bordered = T,
+  columns = list(
+    Id = colDef(
+      name = "Customer ID",
+      align = "left"
+    ),
+    number_customer_service_calls = colDef(
+      name = "Customer Service Calls",
+      style = function(value) {
+        color <- if (value == "NA") {
+          "#e8e8e8"
+        }
+        list(background = color)
+      }
+    ),
+    churn = colDef(
+      name = "Churn",
+      style = function(value) {
+        color <- if (value == "NA") {
+          "#e8e8e8"
+        }
+        list(background = color)
+      }
+    )
+  )
+) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Example data containing missing values")
+  )
+```
+
+## Feature importance
+
+```{r}
+tibble(
+  Feature = c("Smoker", "Age", "Body Mass Index"),
+  Importance = c(0.87, 0.45, 0.2)
+) %>%
+  reactable(
+    compact = T,
+    bordered = TRUE
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Example feature importances sorted from most to least important")
+  )
+```
+
+## Overfitting
+
+```{r}
+tibble(
+  Partition = c("Training", "Validation", "Testing"),
+  Accuracy = c(0.93, 0.78, 0.48)
+) %>%
+  reactable(
+    compact = T,
+    bordered = TRUE
+  ) %>%
+  prependContent(
+    .,
+    h3(class = "title", "Example of overfitting where high accuracy is achieved on the training data but not the testing data.")
+  )
+```
+
+## Cross validation
+
+### Example of cross validation where the original data is partitioned several times for testing. {-}
+
+```{r, echo=F}
+browsable(
+  tagList(
+    list(
+      tags$div(
+        style = 'width:33%;display:block;float:left;padding-right:10px;border:1px solid #e8e8e8',
+        reactable(
+          data = insurance_sample %>% 
+            select(Id) %>%
+            mutate(Partition = c(rep("Training", 7), rep("Testing", 3))),
+          compact = T,
+          bordered = F,
+          columns = list(
+            Id = colDef(
+              name = "Customer ID",
+              align = "left"
+            ),
+            Partition = colDef(
+              style = function(value) {
+                color <- if (value == "Training") {
+                  "#0FA3B199"
+                } else {
+                  "#f0824899"
+                }
+                list(background = color)
+              }
+            )
+          )
+        )
+      ),
+      tags$div(
+        style = 'width:33%;display:block;float:left;padding-right:10px;border:1px solid #e8e8e8',
+        reactable(
+          data = insurance_sample %>% 
+            select(Id) %>%
+            mutate(Partition = c(rep("Training", 3), rep("Testing", 3), rep("Training", 4))),
+          compact = T,
+          bordered = F,
+          columns = list(
+            Id = colDef(
+              name = "Customer ID",
+              align = "left"
+            ),
+            Partition = colDef(
+              style = function(value) {
+                color <- if (value == "Training") {
+                  "#0FA3B199"
+                } else {
+                  "#f0824899"
+                }
+                list(background = color)
+              }
+            )
+          )
+        )
+      ),
+      tags$div(
+        style = 'width:33%;display:block;float:left;padding-left:10px;border:1px solid #e8e8e8',
+        reactable(
+          data = insurance_sample %>% 
+            select(Id) %>%
+            mutate(Partition = c(rep("Testing", 3), rep("Training", 7))),
+          compact = T,
+          bordered = F,
+          columns = list(
+            Id = colDef(
+              name = "Customer ID",
+              align = "left"
+            ),
+            Partition = colDef(
+              style = function(value) {
+                color <- if (value == "Training") {
+                  "#0FA3B199"
+                } else {
+                  "#f0824899"
+                }
+                list(background = color)
+              }
+            )
+          )
+        )
+      )
+    )
+  ) 
+)
+```
+
+## Hyperparameter tuning
+
+```{r}
+tibble(
+  algorithm = rep("Gradient Boosted Trees", 5),
+  learning_rate = c(0.001, 0.001, 0.05, 0.01, 0.05),
+  ntrees = c(265, 350, 720, 114, 200),
+  accuracy = c(0.89, 0.81, 0.76, 0.75, 0.71),
+  rank = c(1, 2, 3, 4, 5)
+) %>%
+  reactable(
+    compact = T,
+    bordered = T,
+    columns = list(
+      algorithm = colDef(
+        name = "Algorithm",
+        align = "left"
+      ),
+      learning_rate = colDef(
+        name = "Learning Rate",
+        align = "left"
+      ),
+      ntrees = colDef(
+        name = "Number of Trees",
+        align = "left"
+      ),
+      accuracy = colDef(
+        name = "Accuracy",
+        align = "left"
+      ),
+      rank = colDef(
+        name = "Rank",
+        align = "left"
+      )
+    )
+  ) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Example hyperparameter tuning grid showing the hyperparameter combinates sorted from most to least accurate")
+  )
+```
+
+## Early stopping
+
+### Example of early stopping where training and validation cease once accuracy stops improving {-}
+
+```{r, echo = F}
+library(plotly)
+
+min_max_scale <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+errors <- tibble(
+  Idx = seq(1,1000,1),
+  Error = min_max_scale(sort(rnorm(1000)**2, decreasing = T)),
+  Group = c(rep("Actual", 800), rep("Expected", 200))
+) 
+
+ggplot(errors, aes(x = Idx, y = Error)) +
+  geom_line(aes(color = Group, linetype = Group), lwd = 0.5, show.legend = F) +
+  scale_color_manual(values = c("black", "gray50")) +
+  annotate("point", x = 800, y = 0.007, shape = 21, size = 5) +
+  annotate("text", x = 800, y = 0.19, label = "Early stopping engaged\ndue to no improvements") +
+  annotate("segment", xend = 800, x = 800, yend = 0.05, y = 0.11, arrow = arrow(length = unit(0.1, "inches"))) +
+  labs(x = "Scoring interval") +
+  theme_classic()
+```
+
+## Ensembling
+
+```{r}
+ensemble_stats <- tibble(
+  ID = c(1, 2, 3, 4),
+  actuals = c(5.2, 9.5, 1.7, 2.9),
+  model1 = c(6.0, 11.1, 2.7, 2.8),
+  model2 = c(4.8, 6.9, 1.3, 2.0),
+  model3 = c(3.9, 7.9, 2.0, 4.1)
+) %>%
+  group_by(ID) %>%
+  mutate(avg = round(mean(c(model1, model2, model3)), 2))
+#mutate(avg_error = avg-actuals)
+
+reactable(
+  data = ensemble_stats,
+  compact = TRUE,
+  bordered = TRUE,
+  columns = list(
+    ID = colDef(
+      name = "Customer ID",
+      align = "left"
+    ),
+    model1 = colDef(
+      name = "Model 1",
+      align = "left"
+    ), 
+    model2 = colDef(
+      name = "Model 2",
+      align = "left"
+    ),
+    model3 = colDef(
+      name = "Model 3",
+      align = "left"
+    ),
+    avg = colDef(
+      name = "Ensemble (average of models)",
+      align = "left",
+      style = function(value) {
+        list(background = "#e8e8e8")
+      }
+    )
+  )
+) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Example of ensembling where predictions from multiple models are combined to increase accuracy")
+  )
+```
+
+```{r}
+ensemble_stats %>%
+  ungroup() %>%
+  summarize(
+    `Model 1` = mean(abs(model1 - actuals)),
+    `Model 2` = mean(abs(model2 - actuals)),
+    `Model 3` = mean(abs(model3 - actuals)),
+    `Ensemble` = mean(abs(avg - actuals))
+  ) %>%
+  gather(Model, Error) %>%
+  arrange(abs(Error)) %>%
+  reactable(
+    bordered = T,
+    compact = T,
+  ) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Error estimates for individual models and ensemble sorted from lowest to highest error")
+  )
+```
+
+# Linear regression
+
+### Regression line
+
+```{r}
+p <- insurance %>%
+  ggplot(aes(x = bmi, y = charges)) +
+  geom_point(aes(color = smoker), alpha = 0.1, size = 2) +
+  geom_smooth(aes(group = smoker, color = smoker), method = "lm",  se = F, lty = 2) +
+  scale_color_manual(values = c("#0FA3B1", "#f08248")) +
+  labs(x = "Body mass index",
+       y = "Healthcare costs",
+       color = "Smoker") +
+  theme_classic()
+
+ggplotly(p)
+```
+
+# Logistic regression
+
+## Coefficients
+
+```{r}
+tibble(
+  Feature = c("A", "B", "C", "D"),
+  Coefficient = c(3.2, -1.1, 6.5, 0.1)
+) %>%
+  reactable(
+    bordered = T,
+    compact = T
+  ) %>%
+  prependContent(
+    x = .,
+    h3(class = "title", "Table of feature coefficients")
+  )
+
+tibble(
+  Dummy = c("Feature coefficients", "Customer actuals"),
+  a = c(3.2, 4.1),
+  b = c(-1.1, 0.7),
+  c = c(6.5, -2.2),
+  d = c(0.1, 1.4),
+)
+
+tibble(
+  customer = rep(1, 4),
+  feature = c("A", "B", "C", "D"),
+  coeffs = c(3.2, -1.1, 6.5, 0.1),
+  actuals = c(4.1, 0.7, -2.2, 1.4)
+) %>%
+  reactable(
+    compact = T,
+    bordered = T,
+    columns = list(
+      customer = colDef(
+        name = "Customer ID",
+        align = "left"
+      ),
+      feature = colDef(
+        name = "Feature",
+        align = "left"
+      ),
+      coeffs = colDef(
+        name = HTML("Coefficient (β)"),
+        align = "left"
+      ),
+      actuals = colDef(
+        name = "Actual value (Χ)",
+        align = "left"
+      )
+    )
+  )
+```
+
+## Equation
+
+## Feature interactions
+
+```{r}
+
+```
+
+
+# Gradient Boosted Trees
+
+draw.io
+
